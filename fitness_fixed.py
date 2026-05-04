@@ -1,5 +1,6 @@
 import sqlite3
 from datetime import datetime
+import os
 
 try:
     import FreeSimpleGUI as sg
@@ -9,7 +10,8 @@ except ImportError as e:
         "Then run this script again."
     ) from e
 
-DB_PATH = r"C:\Users\ulass\Downloads\Algorithm_final\Algorithm_f.db"
+#DB_PATH = r"C:\Users\ulass\Downloads\Algorithm_final\Algorithm_f1.db"
+DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'Algorithm_f1.db')
 DATETIME_FMT = '%Y-%m-%d %H:%M'
 DB_DATETIME_FMT = '%Y-%m-%d %H:%M:%S'
 
@@ -124,6 +126,13 @@ class FitnessCenterGUIApp:
             (f'%{exercise_type.lower()}%',)
         )
 
+    def get_all_specialties(self):
+        """Return a sorted list of distinct specialties that at least one trainer has."""
+        rows = self.fetchall(
+            'SELECT DISTINCT Specialty FROM Trainer_Specialty ORDER BY Specialty'
+        )
+        return [r['Specialty'] for r in rows]
+
     def get_all_trainers(self):
         return self.fetchall(
             '''
@@ -143,6 +152,7 @@ class FitnessCenterGUIApp:
             SELECT swb.StartTime, swb.EndTime, swb.SessionNo
             FROM Trains_Group tg
             JOIN SessionWithBranch swb ON swb.SessionNo = tg.GSessionNo
+            JOIN SessionTime st ON st.StartTime = swb.StartTime
             WHERE tg.StudioNumber = ?
             ''',
             (studio_number,)
@@ -186,11 +196,13 @@ class FitnessCenterGUIApp:
             SELECT swb.StartTime, swb.EndTime, swb.SessionNo
             FROM Trains_Group tg
             JOIN SessionWithBranch swb ON swb.SessionNo = tg.GSessionNo
+            JOIN SessionTime st ON st.StartTime = swb.StartTime
             WHERE tg.TrEmail = ?
             UNION ALL
             SELECT swb.StartTime, swb.EndTime, swb.SessionNo
             FROM PT_Session_Trains pt
             JOIN SessionWithBranch swb ON swb.SessionNo = pt.SessionNo
+            JOIN SessionTime st ON st.StartTime = swb.StartTime
             WHERE pt.TEmail = ?
             ''',
             (trainer_email, trainer_email)
@@ -250,10 +262,14 @@ class FitnessCenterGUIApp:
             return False, 'Conflict detected: trainer is not available at that time.'
 
         session_no = self.next_session_id()
+        start_str = start_dt.strftime(DB_DATETIME_FMT)
         self.execute(
-            'INSERT INTO SessionWithBranch (BName, SessionNo, DayOfWeek, StartTime, EndTime) VALUES (?, ?, ?, ?, ?)',
-            (branch_name, session_no, day_of_week,
-             start_dt.strftime(DB_DATETIME_FMT), end_dt.strftime(DB_DATETIME_FMT))
+            'INSERT OR IGNORE INTO SessionTime (StartTime, DayOfWeek) VALUES (?, ?)',
+            (start_str, day_of_week)
+        )
+        self.execute(
+            'INSERT INTO SessionWithBranch (BName, SessionNo, StartTime, EndTime) VALUES (?, ?, ?, ?)',
+            (branch_name, session_no, start_str, end_dt.strftime(DB_DATETIME_FMT))
         )
         self.execute(
             'INSERT INTO GroupSession (GSessionNo, ExerciseType) VALUES (?, ?)',
@@ -289,10 +305,14 @@ class FitnessCenterGUIApp:
             return False, 'Conflict detected: trainer is not available at that time.'
 
         session_no = self.next_session_id()
+        start_str = start_dt.strftime(DB_DATETIME_FMT)
         self.execute(
-            'INSERT INTO SessionWithBranch (BName, SessionNo, DayOfWeek, StartTime, EndTime) VALUES (?, ?, ?, ?, ?)',
-            (branch_name, session_no, day_of_week,
-             start_dt.strftime(DB_DATETIME_FMT), end_dt.strftime(DB_DATETIME_FMT))
+            'INSERT OR IGNORE INTO SessionTime (StartTime, DayOfWeek) VALUES (?, ?)',
+            (start_str, day_of_week)
+        )
+        self.execute(
+            'INSERT INTO SessionWithBranch (BName, SessionNo, StartTime, EndTime) VALUES (?, ?, ?, ?)',
+            (branch_name, session_no, start_str, end_dt.strftime(DB_DATETIME_FMT))
         )
         self.execute(
             'INSERT INTO PT_Session_Trains (SessionNo, TEmail) VALUES (?, ?)',
@@ -325,10 +345,14 @@ class FitnessCenterGUIApp:
             return False, 'Conflict detected: this time overlaps with your existing group or PT sessions.'
 
         session_no = self.next_session_id()
+        start_str = start_dt.strftime(DB_DATETIME_FMT)
         self.execute(
-            'INSERT INTO SessionWithBranch (BName, SessionNo, DayOfWeek, StartTime, EndTime) VALUES (?, ?, ?, ?, ?)',
-            (branch_name, session_no, day_of_week,
-             start_dt.strftime(DB_DATETIME_FMT), end_dt.strftime(DB_DATETIME_FMT))
+            'INSERT OR IGNORE INTO SessionTime (StartTime, DayOfWeek) VALUES (?, ?)',
+            (start_str, day_of_week)
+        )
+        self.execute(
+            'INSERT INTO SessionWithBranch (BName, SessionNo, StartTime, EndTime) VALUES (?, ?, ?, ?)',
+            (branch_name, session_no, start_str, end_dt.strftime(DB_DATETIME_FMT))
         )
         self.execute(
             'INSERT INTO PT_Session_Trains (SessionNo, TEmail) VALUES (?, ?)',
@@ -368,10 +392,14 @@ class FitnessCenterGUIApp:
         if self.trainer_has_conflict(trainer_email, start_dt, end_dt, exclude_session_no=session_no):
             return False, 'Conflict detected: new time overlaps with your existing sessions.'
 
+        start_str = start_dt.strftime(DB_DATETIME_FMT)
         self.execute(
-            'UPDATE SessionWithBranch SET BName = ?, DayOfWeek = ?, StartTime = ?, EndTime = ? WHERE SessionNo = ?',
-            (new_branch, day_of_week,
-             start_dt.strftime(DB_DATETIME_FMT), end_dt.strftime(DB_DATETIME_FMT), session_no)
+            'INSERT OR REPLACE INTO SessionTime (StartTime, DayOfWeek) VALUES (?, ?)',
+            (start_str, day_of_week)
+        )
+        self.execute(
+            'UPDATE SessionWithBranch SET BName = ?, StartTime = ?, EndTime = ? WHERE SessionNo = ?',
+            (new_branch, start_str, end_dt.strftime(DB_DATETIME_FMT), session_no)
         )
         msg = f'PT session {session_no} updated successfully.'
         if reserved:
@@ -444,7 +472,7 @@ class FitnessCenterGUIApp:
                 gs.GSessionNo AS SessionNo,
                 gs.ExerciseType,
                 swb.BName,
-                swb.DayOfWeek,
+                st.DayOfWeek,
                 swb.StartTime,
                 swb.EndTime,
                 tg.StudioNumber,
@@ -455,6 +483,7 @@ class FitnessCenterGUIApp:
                 COUNT(DISTINCT r.MEmail) AS ReservedCount
             FROM GroupSession gs
             JOIN SessionWithBranch swb ON swb.SessionNo = gs.GSessionNo
+            JOIN SessionTime st ON st.StartTime = swb.StartTime
             JOIN Trains_Group tg ON tg.GSessionNo = gs.GSessionNo
             JOIN StudioHasBranch shb ON shb.StudioNumber = tg.StudioNumber
             JOIN Trainer t ON t.TEmail = tg.TrEmail
@@ -471,10 +500,10 @@ class FitnessCenterGUIApp:
             query += ' AND LOWER(gs.ExerciseType) LIKE ?'
             params.append(f'%{exercise_filter.strip().lower()}%')
         if day_filter.strip():
-            query += ' AND LOWER(swb.DayOfWeek) = ?'
+            query += ' AND LOWER(st.DayOfWeek) = ?'
             params.append(day_filter.strip().lower())
         query += '''
-            GROUP BY gs.GSessionNo, gs.ExerciseType, swb.BName, swb.DayOfWeek,
+            GROUP BY gs.GSessionNo, gs.ExerciseType, swb.BName, st.DayOfWeek,
                      swb.StartTime, swb.EndTime, tg.StudioNumber, shb.Capacity,
                      TrainerName, t.TEmail
             ORDER BY swb.StartTime
@@ -486,7 +515,7 @@ class FitnessCenterGUIApp:
             SELECT
                 pt.SessionNo,
                 swb.BName,
-                swb.DayOfWeek,
+                st.DayOfWeek,
                 swb.StartTime,
                 swb.EndTime,
                 u.Name || ' ' || u.Surname AS TrainerName,
@@ -497,6 +526,7 @@ class FitnessCenterGUIApp:
                 COUNT(DISTINCT r.MEmail) AS ReservedCount
             FROM PT_Session_Trains pt
             JOIN SessionWithBranch swb ON swb.SessionNo = pt.SessionNo
+            JOIN SessionTime st ON st.StartTime = swb.StartTime
             JOIN Trainer t ON t.TEmail = pt.TEmail
             JOIN User u ON u.Email = t.TEmail
             LEFT JOIN Trainer_Specialty ts ON ts.TEmail = t.TEmail
@@ -508,10 +538,10 @@ class FitnessCenterGUIApp:
             query += ' AND swb.BName = ?'
             params.append(branch_filter.strip())
         if day_filter.strip():
-            query += ' AND LOWER(swb.DayOfWeek) = ?'
+            query += ' AND LOWER(st.DayOfWeek) = ?'
             params.append(day_filter.strip().lower())
         query += '''
-            GROUP BY pt.SessionNo, swb.BName, swb.DayOfWeek, swb.StartTime, swb.EndTime,
+            GROUP BY pt.SessionNo, swb.BName, st.DayOfWeek, swb.StartTime, swb.EndTime,
                      TrainerName, t.TEmail, t.Hourly_Fee, u.Gender
             ORDER BY swb.StartTime
         '''
@@ -545,7 +575,7 @@ class FitnessCenterGUIApp:
                 gs.GSessionNo AS SessionNo,
                 gs.ExerciseType,
                 swb.BName,
-                swb.DayOfWeek,
+                st.DayOfWeek,
                 swb.StartTime,
                 swb.EndTime,
                 tg.StudioNumber,
@@ -557,6 +587,7 @@ class FitnessCenterGUIApp:
                 COUNT(DISTINCT r.MEmail) AS ReservedCount
             FROM GroupSession gs
             JOIN SessionWithBranch swb ON swb.SessionNo = gs.GSessionNo
+            JOIN SessionTime st ON st.StartTime = swb.StartTime
             JOIN Trains_Group tg ON tg.GSessionNo = gs.GSessionNo
             JOIN StudioHasBranch shb ON shb.StudioNumber = tg.StudioNumber
             JOIN Trainer t ON t.TEmail = tg.TrEmail
@@ -564,7 +595,7 @@ class FitnessCenterGUIApp:
             LEFT JOIN Trainer_Specialty ts ON ts.TEmail = t.TEmail
             LEFT JOIN Reserves r ON r.SessionNo = gs.GSessionNo
             WHERE gs.GSessionNo = ?
-            GROUP BY gs.GSessionNo, gs.ExerciseType, swb.BName, swb.DayOfWeek,
+            GROUP BY gs.GSessionNo, gs.ExerciseType, swb.BName, st.DayOfWeek,
                      swb.StartTime, swb.EndTime, tg.StudioNumber, shb.Capacity,
                      TrainerName, t.TEmail, t.Hourly_Fee
             ''',
@@ -577,7 +608,7 @@ class FitnessCenterGUIApp:
             SELECT
                 pt.SessionNo,
                 swb.BName,
-                swb.DayOfWeek,
+                st.DayOfWeek,
                 swb.StartTime,
                 swb.EndTime,
                 u.Name || ' ' || u.Surname AS TrainerName,
@@ -588,12 +619,13 @@ class FitnessCenterGUIApp:
                 COUNT(DISTINCT r.MEmail) AS ReservedCount
             FROM PT_Session_Trains pt
             JOIN SessionWithBranch swb ON swb.SessionNo = pt.SessionNo
+            JOIN SessionTime st ON st.StartTime = swb.StartTime
             JOIN Trainer t ON t.TEmail = pt.TEmail
             JOIN User u ON u.Email = t.TEmail
             LEFT JOIN Trainer_Specialty ts ON ts.TEmail = t.TEmail
             LEFT JOIN Reserves r ON r.SessionNo = pt.SessionNo
             WHERE pt.SessionNo = ?
-            GROUP BY pt.SessionNo, swb.BName, swb.DayOfWeek, swb.StartTime, swb.EndTime,
+            GROUP BY pt.SessionNo, swb.BName, st.DayOfWeek, swb.StartTime, swb.EndTime,
                      TrainerName, t.TEmail, t.Hourly_Fee, u.Gender
             ''',
             (session_no,)
@@ -614,6 +646,7 @@ class FitnessCenterGUIApp:
             SELECT swb.SessionNo, swb.StartTime, swb.EndTime
             FROM Reserves r
             JOIN SessionWithBranch swb ON swb.SessionNo = r.SessionNo
+            JOIN SessionTime st ON st.StartTime = swb.StartTime
             WHERE r.MEmail = ?
             ''',
             (member_email,)
@@ -687,8 +720,8 @@ class FitnessCenterGUIApp:
             (session_no, member_email)
         )
         if rate:
-            self.execute('DELETE FROM Rating WHERE RNumber = ?', (rate['RNumber'],))
             self.execute('DELETE FROM Rates WHERE RNumber = ?', (rate['RNumber'],))
+            self.execute('DELETE FROM Rating WHERE RNumber = ?', (rate['RNumber'],))
 
         self.execute('DELETE FROM Reserves WHERE MEmail = ? AND SessionNo = ?', (member_email, session_no))
         updated_count = self.fetchone('SELECT COUNT(*) AS Cnt FROM Reserves WHERE SessionNo = ?', (session_no,))['Cnt']
@@ -726,8 +759,8 @@ class FitnessCenterGUIApp:
             (session_no, member_email)
         )
         if rate:
-            self.execute('DELETE FROM Rating WHERE RNumber = ?', (rate['RNumber'],))
             self.execute('DELETE FROM Rates WHERE RNumber = ?', (rate['RNumber'],))
+            self.execute('DELETE FROM Rating WHERE RNumber = ?', (rate['RNumber'],))
 
         self.execute('DELETE FROM Reserves WHERE MEmail = ? AND SessionNo = ?', (member_email, session_no))
         return True, f'PT reservation cancelled. Refund amount: {refund_amount:.2f} TL (based on {hourly_fee}/hr x {duration_hours:.1f} hr).'
@@ -778,7 +811,7 @@ class FitnessCenterGUIApp:
             SELECT
                 swb.SessionNo,
                 swb.BName,
-                swb.DayOfWeek,
+                st.DayOfWeek,
                 swb.StartTime,
                 swb.EndTime,
                 CASE
@@ -800,6 +833,7 @@ class FitnessCenterGUIApp:
                 ) AS TrainerName
             FROM Reserves r
             JOIN SessionWithBranch swb ON swb.SessionNo = r.SessionNo
+            JOIN SessionTime st ON st.StartTime = swb.StartTime
             LEFT JOIN GroupSession gs ON gs.GSessionNo = swb.SessionNo
             LEFT JOIN PT_Session_Trains pt ON pt.SessionNo = swb.SessionNo
             WHERE r.MEmail = ?
@@ -832,24 +866,36 @@ class FitnessCenterGUIApp:
                 (SELECT rt.Score FROM Rates ra JOIN Rating rt ON rt.RNumber = ra.RNumber
                  WHERE ra.SessionNo = swb.SessionNo AND ra.MEmail = ?) AS MyScore,
                 (SELECT rt.Comment FROM Rates ra JOIN Rating rt ON rt.RNumber = ra.RNumber
-                 WHERE ra.SessionNo = swb.SessionNo AND ra.MEmail = ?) AS MyComment
+                 WHERE ra.SessionNo = swb.SessionNo AND ra.MEmail = ?) AS MyComment,
+                (SELECT rt.Time FROM Rates ra JOIN Rating rt ON rt.RNumber = ra.RNumber
+                 WHERE ra.SessionNo = swb.SessionNo AND ra.MEmail = ?) AS RatedAt
             FROM Reserves r
             JOIN SessionWithBranch swb ON swb.SessionNo = r.SessionNo
+            JOIN SessionTime st ON st.StartTime = swb.StartTime
             LEFT JOIN GroupSession gs ON gs.GSessionNo = swb.SessionNo
             WHERE r.MEmail = ?
             ORDER BY swb.StartTime DESC
             ''',
-            (member_email, member_email, member_email)
+            (member_email, member_email, member_email, member_email)
         )
 
     def rate_session(self, member_email, session_no, score, comment):
-        """Submit a rating. Only one rating per session per member (Text 3)."""
+        """Submit or update a rating. Session must have already ended."""
         reserved = self.fetchone(
             'SELECT 1 FROM Reserves WHERE MEmail = ? AND SessionNo = ?',
             (member_email, session_no)
         )
         if not reserved:
             return False, 'You can only rate sessions you have reserved.'
+
+        # Block rating if session has not ended yet
+        session = self.fetchone(
+            'SELECT EndTime FROM SessionWithBranch WHERE SessionNo = ?', (session_no,)
+        )
+        if session:
+            end_dt = datetime.fromisoformat(session['EndTime'])
+            if datetime.now() < end_dt:
+                return False, 'This session has not been held yet.'
 
         try:
             score = int(score)
@@ -862,14 +908,20 @@ class FitnessCenterGUIApp:
             'SELECT ra.RNumber FROM Rates ra WHERE ra.SessionNo = ? AND ra.MEmail = ?',
             (session_no, member_email)
         )
+        now_str = datetime.now().strftime(DB_DATETIME_FMT)
         if existing:
-            return False, 'You have already rated this session. Only one rating per session is allowed.'
+            # Update existing rating
+            self.execute(
+                'UPDATE Rating SET Score = ?, Comment = ?, Time = ? WHERE RNumber = ?',
+                (score, comment.strip(), now_str, existing['RNumber'])
+            )
+            return True, 'Rating updated successfully.'
 
         row = self.fetchone('SELECT COALESCE(MAX(RNumber), 0) + 1 AS NextR FROM Rating')
         next_r = int(row['NextR'])
         self.execute(
             'INSERT INTO Rating (Time, RNumber, Score, Comment) VALUES (?, ?, ?, ?)',
-            (datetime.now().strftime(DB_DATETIME_FMT), next_r, score, comment.strip())
+            (now_str, next_r, score, comment.strip())
         )
         self.execute(
             'INSERT INTO Rates (RNumber, SessionNo, MEmail) VALUES (?, ?, ?)',
@@ -884,7 +936,7 @@ class FitnessCenterGUIApp:
             SELECT gs.GSessionNo AS SessionNo,
                    'Group - ' || gs.ExerciseType AS SessionType,
                    swb.BName,
-                   swb.DayOfWeek,
+                   st.DayOfWeek,
                    swb.StartTime,
                    swb.EndTime,
                    CAST(tg.StudioNumber AS TEXT) AS StudioNumber,
@@ -893,10 +945,11 @@ class FitnessCenterGUIApp:
             FROM Trains_Group tg
             JOIN GroupSession gs ON gs.GSessionNo = tg.GSessionNo
             JOIN SessionWithBranch swb ON swb.SessionNo = gs.GSessionNo
+            JOIN SessionTime st ON st.StartTime = swb.StartTime
             JOIN StudioHasBranch shb ON shb.StudioNumber = tg.StudioNumber
             LEFT JOIN Reserves r ON r.SessionNo = gs.GSessionNo
             WHERE tg.TrEmail = ?
-            GROUP BY gs.GSessionNo, gs.ExerciseType, swb.BName, swb.DayOfWeek,
+            GROUP BY gs.GSessionNo, gs.ExerciseType, swb.BName, st.DayOfWeek,
                      swb.StartTime, swb.EndTime, tg.StudioNumber, shb.Capacity
             ''',
             (trainer_email,)
@@ -906,7 +959,7 @@ class FitnessCenterGUIApp:
             SELECT pt.SessionNo,
                    'PT' AS SessionType,
                    swb.BName,
-                   swb.DayOfWeek,
+                   st.DayOfWeek,
                    swb.StartTime,
                    swb.EndTime,
                    '-' AS StudioNumber,
@@ -914,9 +967,10 @@ class FitnessCenterGUIApp:
                    COUNT(r.MEmail) AS ReservedCount
             FROM PT_Session_Trains pt
             JOIN SessionWithBranch swb ON swb.SessionNo = pt.SessionNo
+            JOIN SessionTime st ON st.StartTime = swb.StartTime
             LEFT JOIN Reserves r ON r.SessionNo = pt.SessionNo
             WHERE pt.TEmail = ?
-            GROUP BY pt.SessionNo, swb.BName, swb.DayOfWeek, swb.StartTime, swb.EndTime
+            GROUP BY pt.SessionNo, swb.BName, st.DayOfWeek, swb.StartTime, swb.EndTime
             ''',
             (trainer_email,)
         )
@@ -964,7 +1018,7 @@ class FitnessCenterGUIApp:
                 gs.GSessionNo AS SessionNo,
                 gs.ExerciseType,
                 swb.BName,
-                swb.DayOfWeek,
+                st.DayOfWeek,
                 swb.StartTime,
                 swb.EndTime,
                 tg.StudioNumber,
@@ -973,6 +1027,7 @@ class FitnessCenterGUIApp:
                 COUNT(r.MEmail) AS ReservedCount
             FROM GroupSession gs
             JOIN SessionWithBranch swb ON swb.SessionNo = gs.GSessionNo
+            JOIN SessionTime st ON st.StartTime = swb.StartTime
             JOIN Trains_Group tg ON tg.GSessionNo = gs.GSessionNo
             JOIN StudioHasBranch shb ON shb.StudioNumber = tg.StudioNumber
             JOIN Trainer t ON t.TEmail = tg.TrEmail
@@ -988,7 +1043,7 @@ class FitnessCenterGUIApp:
             query += ' AND LOWER(gs.ExerciseType) LIKE ?'
             params.append(f'%{exercise_filter.strip().lower()}%')
         query += '''
-            GROUP BY gs.GSessionNo, gs.ExerciseType, swb.BName, swb.DayOfWeek,
+            GROUP BY gs.GSessionNo, gs.ExerciseType, swb.BName, st.DayOfWeek,
                      swb.StartTime, swb.EndTime, tg.StudioNumber, shb.Capacity,
                      TrainerName
             ORDER BY swb.StartTime
@@ -1180,10 +1235,11 @@ def make_admin_window(app, email):
     branches = [r['Name'] for r in app.get_branches()]
     all_trainers = app.get_all_trainers()
     trainer_emails = [t['TEmail'] for t in all_trainers]
+    exercise_types = app.get_all_specialties()
 
     group_create_tab = [
         [sg.Text('Branch', size=(15, 1)), sg.Combo(branches, key='-A-BRANCH-', readonly=False, enable_events=True, size=(30, 1))],
-        [sg.Text('Exercise Type', size=(15, 1)), sg.Input(key='-A-EXERCISE-'), sg.Button('Load Eligible Trainers')],
+        [sg.Text('Exercise Type', size=(15, 1)), sg.Combo(exercise_types, key='-A-EXERCISE-', readonly=False, size=(28, 1)), sg.Button('Load Eligible Trainers')],
         [sg.Text('Start', size=(15, 1)),
          sg.Input(key='-A-START-', size=(18, 1), readonly=True),
          sg.Button('📅 Pick Start', key='-A-PICK-START-'),
@@ -1193,7 +1249,7 @@ def make_admin_window(app, email):
          sg.Button('📅 Pick End', key='-A-PICK-END-')],
         [sg.Text('Studio Number', size=(15, 1)), sg.Combo([], key='-A-STUDIO-', size=(30, 1), readonly=False)],
         [sg.Text('Trainer', size=(15, 1)), sg.Combo([], key='-A-TRAINER-', size=(45, 1), readonly=False)],
-        [sg.Button('Create Group Session'), sg.Button('Refresh Branch Info')],
+        [sg.Button('Create Group Session')],
         [sg.Text('Studios in selected branch:')],
         [sg.Multiline('', size=(100, 5), key='-A-STUDIOS-', disabled=True)],
         [sg.Text('Eligible trainers:')],
@@ -1221,7 +1277,7 @@ def make_admin_window(app, email):
     view_headings = ['Session ID', 'Exercise', 'Branch', 'Day', 'Start', 'End', 'Studio', 'Trainer', 'Reserved']
     view_sessions_tab = [
         [sg.Text('Branch', size=(10, 1)), sg.Combo([''] + branches, key='-AV-BRANCH-', size=(20, 1), readonly=False),
-         sg.Text('Exercise', size=(10, 1)), sg.Input(key='-AV-EXERCISE-', size=(15, 1)),
+         sg.Text('Exercise', size=(10, 1)), sg.Combo([''] + exercise_types, key='-AV-EXERCISE-', readonly=False, size=(18, 1)),
          sg.Button('Search All Group Sessions')],
         [sg.Table(values=[], headings=view_headings, key='-AV-TABLE-', auto_size_columns=False,
                   col_widths=[8, 12, 14, 10, 18, 18, 8, 18, 10],
@@ -1310,7 +1366,7 @@ def handle_admin_window(app, email):
             dt = pick_datetime('Pick Group Session End', values['-A-END-'])
             if dt:
                 window['-A-END-'].update(dt)
-        if event in ('Refresh Branch Info', '-A-BRANCH-'):
+        if event == '-A-BRANCH-':
             refresh_studios(values['-A-BRANCH-'])
         if event == 'Load Eligible Trainers':
             refresh_eligible_trainers(values['-A-EXERCISE-'])
@@ -1367,9 +1423,10 @@ def handle_admin_window(app, email):
 
 def make_member_window(app, email):
     branches = [r['Name'] for r in app.get_branches()]
+    exercise_types = app.get_all_specialties()
     group_headings = ['Session ID', 'Exercise', 'Branch', 'Day', 'Start', 'End', 'Trainer', 'Studio', 'Reserved']
     pt_headings = ['Session ID', 'Branch', 'Day', 'Start', 'End', 'Trainer', 'Fee/hr', 'Status']
-    rating_headings = ['Session ID', 'Type', 'Branch', 'Start', 'End', 'Trainer', 'My Score', 'My Comment']
+    rating_headings = ['Session ID', 'Type', 'Branch', 'Start', 'End', 'Trainer', 'My Score', 'My Comment', 'Rated At']
     sched_headings = ['Session ID', 'Type', 'Exercise', 'Branch', 'Day', 'Start', 'End', 'Trainer']
 
     # Profile tab (Text 3)
@@ -1388,7 +1445,7 @@ def make_member_window(app, email):
 
     group_tab = [
         [sg.Text('Branch', size=(10, 1)), sg.Combo(branches, key='-M-BRANCH-', size=(20, 1), readonly=False),
-         sg.Text('Exercise', size=(10, 1)), sg.Input(key='-M-EXERCISE-', size=(15, 1)),
+         sg.Text('Exercise', size=(10, 1)), sg.Combo([''] + exercise_types, key='-M-EXERCISE-', readonly=False, size=(18, 1)),
          sg.Text('Day', size=(6, 1)),
          sg.Input(key='-M-DAY-', size=(12, 1), readonly=True),
          sg.Button('📅', key='-M-PICK-DAY-', tooltip='Pick a day'),
@@ -1435,12 +1492,12 @@ def make_member_window(app, email):
         [sg.Text('Your attended sessions. Select one to rate it.', font=('Any', 10, 'bold'))],
         [sg.Button('Refresh My Sessions')],
         [sg.Table(values=[], headings=rating_headings, key='-MR-TABLE-', auto_size_columns=False,
-                  col_widths=[8, 16, 14, 18, 18, 18, 9, 30],
+                  col_widths=[8, 16, 14, 18, 18, 18, 9, 30, 18],
                   justification='left', expand_x=True, num_rows=10,
                   enable_events=True, select_mode=sg.TABLE_SELECT_MODE_BROWSE)],
         [sg.Text('Score (1-5)', size=(12, 1)), sg.Input(key='-MR-SCORE-', size=(5, 1)),
          sg.Text('Comment', size=(10, 1)), sg.Input(key='-MR-COMMENT-', size=(50, 1)),
-         sg.Button('Submit Rating')],
+         sg.Button('Submit / Update Rating')],
         [sg.Text('', key='-MR-MSG-', size=(100, 2), text_color='blue')],
     ]
 
@@ -1491,10 +1548,11 @@ def handle_member_window(app, email):
         for r in current_rating_rows:
             score = r['MyScore'] if r['MyScore'] is not None else '-'
             comment = r['MyComment'] if r['MyComment'] is not None else ''
+            rated_at = r['RatedAt'] if r['RatedAt'] is not None else ''
             data.append([
                 r['SessionNo'], r['SessionType'], r['BName'],
                 r['StartTime'], r['EndTime'], r['TrainerName'],
-                score, comment
+                score, comment, rated_at
             ])
         window['-MR-TABLE-'].update(values=data)
         window['-MR-MSG-'].update(f'{len(current_rating_rows)} attended session(s) loaded.', text_color='blue')
@@ -1674,7 +1732,7 @@ def handle_member_window(app, email):
         # Ratings tab
         if event == 'Refresh My Sessions':
             refresh_my_sessions()
-        if event == 'Submit Rating':
+        if event == 'Submit / Update Rating':
             if not values['-MR-TABLE-']:
                 window['-MR-MSG-'].update('Please select a session to rate first.', text_color='red')
                 continue
