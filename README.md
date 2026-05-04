@@ -1,4 +1,4 @@
-# 🏋️ Fitness Center Manager
+# 🏋️ Fitness Center App
 
 A Python desktop application for managing gym members, trainers, and sessions with role-based login and a SQLite backend.
 
